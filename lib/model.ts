@@ -19,44 +19,45 @@ export interface Snapshot {
   watchlist: string[];
 }
 
-export interface RidgeWeights {
-  intercept: number;
-  log_tvl_slope: number;
-  log_age_slope: number;
-  growth_7d_slope: number;
-  log_chains_slope: number;
-  lambda: number;
+export interface ValueAblationRow {
+  term: string;
+  loo_miss: number;
+  wf_miss: number;
+  status: 'baseline' | 'kept' | 'tested, not kept' | 'control';
 }
 
-export interface ValidationMetrics {
-  folds: number;
-  live_comps_total: number;
-  live_comps_fitted: number;
-  cv_r2_log: number;
-  baseline_r2_log: number;
-  cv_rmse_log: number;
-  cv_median_ape_pct: number;
-  baseline_median_ape_pct: number;
-  global_median_multiple: number;
+export interface OddsAblationRow {
+  term: string;
+  cv_brier: number;
+  cv_acc: number;
+  wf_brier: number;
+  wf_acc: number;
+  status: 'baseline' | 'kept' | 'tested, not kept' | 'control';
 }
 
-export interface CategoryStat {
-  category: string;
-  total_protocols: number;
-  live_count: number;
-  pre_token_count: number;
-  tokenization_rate: number;
-  median_multiple: number;
-  cat_residual_log: number;
-  median_tvl_usd: number;
+export interface RangeAudit {
+  within_3x_loo: number;
+  within_3x_wf: number;
+  in_p25_p75_loo: number;
+  in_p25_p75_wf: number;
+  in_p10_p90_loo: number;
+  in_p10_p90_wf: number;
+  n_loo: number;
+  n_wf: number;
 }
 
-export interface UniverseBreakdown {
+export interface LedgerBreakdown {
   total: number;
-  watchlist: number;
-  early_pre_token: number;
-  live_token: number;
-  excluded_wrapped_cex: number;
+  ranked_watchlist: number;
+  ranked_early: number;
+  ranked_offlist: number;
+  token_priced: number;
+  token_nocap: number;
+  out_bridge: number;
+  out_lst: number;
+  out_exchange: number;
+  out_versioned: number;
+  out_wrapped: number;
 }
 
 export interface BoardRow {
@@ -71,23 +72,30 @@ export interface BoardRow {
   listed_at: string | null;
   gecko_id: string | null;
   symbol: string | null;
-  token_status: 'pre-token';
+  tier: 'watchlist' | 'early' | 'offlist';
   is_watchlist: boolean;
   age_days: number | null;
+  token_odds: number;
+  launch_value_usd: number;
   implied_value_usd: number;
+  p25_value_usd: number;
+  p75_value_usd: number;
   p10_value_usd: number;
   p90_value_usd: number;
   implied_multiple: number;
-  peer_token_rate: number;
+  plan_deposit_usd: number;
   farm_cost_usd: number;
+  farm_hours: number;
   hold_days: number;
   model: {
     base_multiple: number;
-    tvl_scale_mult: number;
-    growth_mult: number;
-    age_mult: number;
-    chain_mult: number;
+    size_mult: number;
     category_mult: number;
+    token_odds: number;
+    odds_age_logit: number;
+    odds_tvl_logit: number;
+    odds_g7_logit: number;
+    odds_cat_logit: number;
   };
   farm_steps: string[];
 }
@@ -103,6 +111,7 @@ export interface LiveRow {
   pred_mcap_usd: number;
   change_7d: number | null;
   symbol: string | null;
+  listed_at: string | null;
 }
 
 export interface RadarData {
@@ -110,58 +119,69 @@ export interface RadarData {
   source: string;
   floor_usd: number;
   model_version: string;
-  weights: RidgeWeights;
-  validation: ValidationMetrics;
-  universe: UniverseBreakdown;
+  seal: string;
+  total_implied_usd: number;
+  ledger: LedgerBreakdown;
+  value_params: {
+    base_mult_100m: number;
+    size_slope: number;
+    cat_lambda: number;
+    cat_min: number;
+    cat_max: number;
+    q25_log: number;
+    q75_log: number;
+    q10_log: number;
+    q90_log: number;
+  };
+  odds_params: {
+    intercept: number;
+    age_coef: number;
+    tvl_coef: number;
+    g7_coef: number;
+    base_rate: number;
+    n_peers: number;
+    n_tokenized: number;
+  };
+  value_ablation: ValueAblationRow[];
+  odds_ablation: OddsAblationRow[];
+  range_audit: RangeAudit;
   watchlist_size: number;
   board_size: number;
   early_size: number;
+  offlist_size: number;
   live_size: number;
-  category_stats: CategoryStat[];
-  rows: Array<{
-    rank: number;
-    slug: string;
-    name: string;
-    category: string | null;
-    chains: string[];
-    tvl_usd: number;
-    change_7d: number | null;
-    listed_at: string | null;
-    age_days: number | null;
-    is_watchlist: boolean;
-    implied_value_usd: number;
-    p10_value_usd: number;
-    p90_value_usd: number;
-    implied_multiple: number;
-    peer_token_rate: number;
-    farm_cost_usd: number;
-    hold_days: number;
-    model: BoardRow['model'];
-    farm_steps: string[];
-  }>;
+  rows: Array<Omit<BoardRow, 'mcap_usd' | 'gecko_id' | 'symbol'>>;
   live: LiveRow[];
 }
 
-export const MODEL_VERSION = 'ridge-cv-v3';
+export const MODEL_VERSION = 'radar-oos-v4';
 const DAY_MS = 86_400_000;
-const LAMBDA = 6.0;
-const CAT_SHRINK = 4.0;
 const TVL_REF = 100_000_000;
-const AGE_REF = 365;
+const CAT_VAL_LAMBDA = 24;
+const CAT_ODDS_LAMBDA = 12;
+
 const VERSIONED = /\s(V\d+(\.\d+)?|v\d+(\.\d+)?|\d+\.\d+)$/;
-const EXCLUDED_CATS = new Set(['CEX', 'Bridge', 'Canonical Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC']);
+const BRIDGE_CATS = new Set(['Bridge', 'Canonical Bridge']);
+const LST_CATS = new Set(['Liquid Staking', 'Liquid Restaking', 'Restaked BTC']);
 const EXCHANGE_PREFIX = /^(Binance|Coinbase|Bybit|Kraken|Bitget|OKX|Bitfinex|Gemini)\b/i;
 const WRAPPED_WORD = /\b(wrapped|staked|staking)\b/i;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const round3 = (n: number): number => Math.round(n * 1e3) / 1e3;
 const round4 = (n: number): number => Math.round(n * 1e4) / 1e4;
+const sigmoid = (z: number): number => 1 / (1 + Math.exp(-clamp(z, -20, 20)));
 
-function median(nums: number[]): number {
+function quantile(nums: number[], q: number): number {
   if (nums.length === 0) return 0;
   const s = [...nums].sort((a, b) => a - b);
-  const mid = Math.floor(s.length / 2);
-  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+  const pos = clamp(q, 0, 1) * (s.length - 1);
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  if (lo === hi) return s[lo]!;
+  return s[lo]! + (s[hi]! - s[lo]!) * (pos - lo);
 }
+
+const median = (nums: number[]): number => quantile(nums, 0.5);
 
 export function ageDays(asOf: string, listedAt: string | null): number | null {
   if (!listedAt) return null;
@@ -171,29 +191,32 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
   return Math.max(1, Math.floor((a - b) / DAY_MS));
 }
 
-export function isPreToken(p: SnapshotProtocol): boolean {
-  return p.mcap_usd === null && p.gecko_id === null && p.symbol === null;
+function ageYears(asOf: string, listedAt: string | null): number {
+  const d = ageDays(asOf, listedAt);
+  return d === null ? 1.0 : Math.max(0.02, d / 365.25);
 }
 
-export function isRankable(p: SnapshotProtocol): boolean {
-  return (
-    isPreToken(p) &&
-    !EXCLUDED_CATS.has(p.category ?? '') &&
-    !VERSIONED.test(p.name) &&
-    !EXCHANGE_PREFIX.test(p.name) &&
-    !WRAPPED_WORD.test(p.name)
-  );
+function growth7d(p: SnapshotProtocol): number {
+  return typeof p.change_7d === 'number' && Number.isFinite(p.change_7d)
+    ? clamp(p.change_7d, -60, 150) / 100
+    : 0;
 }
 
-function featureVec(p: SnapshotProtocol, asOf: string): [number, number, number, number, number] {
-  const age = ageDays(asOf, p.listed_at) ?? AGE_REF;
-  const g7 = clamp(typeof p.change_7d === 'number' && Number.isFinite(p.change_7d) ? p.change_7d : 0, -50, 150) / 100;
-  const ch = Math.max(1, p.chains.length);
-  return [1, Math.log(Math.max(1, p.tvl_usd) / TVL_REF), Math.log(age / AGE_REF), g7, Math.log(ch)];
+export function isNoTokenRecorded(p: SnapshotProtocol): boolean {
+  return p.gecko_id === null && p.symbol === null;
 }
 
-/** Solve (X^T X + lambda * I_no_bias) w = X^T y via Gauss-Jordan elimination. */
-function solveRidge(X: number[][], y: number[], lam: number): number[] {
+export function exclusionReason(p: SnapshotProtocol): 'bridge' | 'lst' | 'exchange' | 'versioned' | 'wrapped' | null {
+  const cat = p.category ?? '';
+  if (BRIDGE_CATS.has(cat)) return 'bridge';
+  if (LST_CATS.has(cat)) return 'lst';
+  if (cat === 'CEX' || EXCHANGE_PREFIX.test(p.name)) return 'exchange';
+  if (VERSIONED.test(p.name)) return 'versioned';
+  if (WRAPPED_WORD.test(p.name)) return 'wrapped';
+  return null;
+}
+
+function solveLinearRidge(X: number[][], y: number[], lam: number): number[] {
   const k = X[0]!.length;
   const A: number[][] = Array.from({ length: k }, () => new Array(k).fill(0));
   const b: number[] = new Array(k).fill(0);
@@ -207,17 +230,13 @@ function solveRidge(X: number[][], y: number[], lam: number): number[] {
   }
   for (let i = 1; i < k; i++) A[i]![i]! += lam;
   for (let i = 0; i < k; i++) {
-    let pivRow = i;
-    for (let r = i + 1; r < k; r++) {
-      if (Math.abs(A[r]![i]!) > Math.abs(A[pivRow]![i]!)) pivRow = r;
-    }
-    if (pivRow !== i) {
-      [A[i], A[pivRow]] = [A[pivRow]!, A[i]!];
-      [b[i], b[pivRow]] = [b[pivRow]!, b[i]!];
-    }
-    const piv = A[i]![i] || 1e-9;
-    for (let j = i; j < k; j++) A[i]![j]! /= piv;
-    b[i]! /= piv;
+    let piv = i;
+    for (let r = i + 1; r < k; r++) if (Math.abs(A[r]![i]!) > Math.abs(A[piv]![i]!)) piv = r;
+    [A[i], A[piv]] = [A[piv]!, A[i]!];
+    [b[i], b[piv]] = [b[piv]!, b[i]!];
+    const d = A[i]![i] || 1e-9;
+    for (let j = i; j < k; j++) A[i]![j]! /= d;
+    b[i]! /= d;
     for (let r = 0; r < k; r++) {
       if (r === i) continue;
       const f = A[r]![i]!;
@@ -228,272 +247,509 @@ function solveRidge(X: number[][], y: number[], lam: number): number[] {
   return b;
 }
 
-const dot = (w: number[], x: number[]): number => w.reduce((acc, wi, i) => acc + wi * x[i]!, 0);
-
-function fitRidgeAndCrossValidate(snapshot: Snapshot): {
-  weights: RidgeWeights;
-  catResidualLog: Map<string, number>;
-  validation: ValidationMetrics;
-  categoryStats: CategoryStat[];
-  catTokenRate: Map<string, number>;
-} {
-  const rawLive = snapshot.protocols.filter(
-    (p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0 && p.category !== 'CEX',
-  );
-  // Fit on non-extreme comps [0.02x..15x] to prevent memecoin / dead-TVL outliers distorting slopes
-  const fitted = rawLive.filter((p) => {
-    const r = p.mcap_usd! / p.tvl_usd;
-    return r >= 0.02 && r <= 15.0;
-  });
-
-  const X = fitted.map((p) => featureVec(p, snapshot.as_of));
-  const yRatio = fitted.map((p) => Math.log(p.mcap_usd! / p.tvl_usd));
-  const yMcap = fitted.map((p) => Math.log(p.mcap_usd!));
-  const wFull = solveRidge(X, yRatio, LAMBDA);
-
-  // Empirical-Bayes shrunk category residuals on full fitted sample
-  const catResList = new Map<string, number[]>();
-  for (let i = 0; i < fitted.length; i++) {
-    const cat = fitted[i]!.category || 'Other';
-    const res = yRatio[i]! - dot(wFull, X[i]!);
-    let arr = catResList.get(cat);
-    if (!arr) {
-      arr = [];
-      catResList.set(cat, arr);
+function fitLogisticRidge(X: number[][], y: number[], lam: number): number[] {
+  const k = X[0]!.length;
+  let w = new Array(k).fill(0);
+  const p0 = clamp(y.reduce((a, b) => a + b, 0) / Math.max(1, y.length), 0.05, 0.95);
+  w[0] = Math.log(p0 / (1 - p0));
+  for (let iter = 0; iter < 14; iter++) {
+    const H: number[][] = Array.from({ length: k }, () => new Array(k).fill(0));
+    const g: number[] = new Array(k).fill(0);
+    for (let n = 0; n < X.length; n++) {
+      const row = X[n]!;
+      let z = 0;
+      for (let i = 0; i < k; i++) z += w[i]! * row[i]!;
+      const p = sigmoid(z);
+      const err = y[n]! - p;
+      const wt = Math.max(1e-5, p * (1 - p));
+      for (let i = 0; i < k; i++) {
+        g[i]! += err * row[i]!;
+        for (let j = 0; j < k; j++) H[i]![j]! += wt * row[i]! * row[j]!;
+      }
     }
+    for (let i = 1; i < k; i++) {
+      H[i]![i]! += lam;
+      g[i]! -= lam * w[i]!;
+    }
+    // Solve H * delta = g
+    for (let i = 0; i < k; i++) {
+      let piv = i;
+      for (let r = i + 1; r < k; r++) if (Math.abs(H[r]![i]!) > Math.abs(H[piv]![i]!)) piv = r;
+      [H[i], H[piv]] = [H[piv]!, H[i]!];
+      [g[i], g[piv]] = [g[piv]!, g[i]!];
+      const d = H[i]![i] || 1e-9;
+      for (let j = i; j < k; j++) H[i]![j]! /= d;
+      g[i]! /= d;
+      for (let r = 0; r < k; r++) {
+        if (r === i) continue;
+        const f = H[r]![i]!;
+        for (let j = i; j < k; j++) H[r]![j]! -= f * H[i]![j]!;
+        g[r]! -= f * g[i]!;
+      }
+    }
+    let maxStep = 0;
+    for (let i = 0; i < k; i++) {
+      w[i]! += g[i]!;
+      maxStep = Math.max(maxStep, Math.abs(g[i]!));
+    }
+    if (maxStep < 1e-5) break;
+  }
+  return w;
+}
+
+const dot = (w: number[], x: number[]): number => w.reduce((s, wi, i) => s + wi * x[i]!, 0);
+
+function multMiss(preds: number[], actuals: number[]): number {
+  return median(preds.map((pr, i) => Math.exp(Math.abs(pr - actuals[i]!))));
+}
+
+export function computeSeal(rows: Array<{ slug: string; rank: number; implied_value_usd: number }>): string {
+  let h = 2166136261 >>> 0;
+  for (const r of rows) {
+    const s = `${r.rank}:${r.slug}:${r.implied_value_usd}|`;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619) >>> 0;
+    }
+  }
+  return h.toString(16).padStart(8, '0');
+}
+
+function fitValueModelAndAblate(comps: SnapshotProtocol[], asOf: string) {
+  const yAll = comps.map((p) => Math.log(p.mcap_usd! / p.tvl_usd));
+  const dated = comps
+    .filter((p) => p.listed_at !== null)
+    .sort((a, b) => a.listed_at!.localeCompare(b.listed_at!) || a.slug.localeCompare(b.slug));
+  const wfCut = Math.floor(dated.length * 0.6);
+  const wfTrain = dated.slice(0, wfCut);
+  const wfTest = dated.slice(wfCut);
+
+  const evalVariant = (
+    featFn: (p: SnapshotProtocol, idx: number, pool: SnapshotProtocol[]) => number[],
+    useCat: boolean,
+    catLam: number,
+  ) => {
+    const looPreds: number[] = [];
+    for (let i = 0; i < comps.length; i++) {
+      const tr: SnapshotProtocol[] = [];
+      const trX: number[][] = [];
+      const trY: number[] = [];
+      for (let j = 0; j < comps.length; j++) {
+        if (j === i) continue;
+        tr.push(comps[j]!);
+        trX.push(featFn(comps[j]!, j, comps));
+        trY.push(yAll[j]!);
+      }
+      const w = solveLinearRidge(trX, trY, 1.0);
+      let hat = dot(w, featFn(comps[i]!, i, comps));
+      if (useCat) {
+        const cat = comps[i]!.category || 'Other';
+        let sum = 0, cnt = 0;
+        for (let j = 0; j < tr.length; j++) {
+          if ((tr[j]!.category || 'Other') === cat) {
+            sum += trY[j]! - dot(w, trX[j]!);
+            cnt++;
+          }
+        }
+        hat += sum / (cnt + catLam);
+      }
+      looPreds.push(hat);
+    }
+    const wfTrX = wfTrain.map((p, i) => featFn(p, i, wfTrain));
+    const wfTrY = wfTrain.map((p) => Math.log(p.mcap_usd! / p.tvl_usd));
+    const wWf = solveLinearRidge(wfTrX, wfTrY, 1.0);
+    const wfPreds = wfTest.map((p, i) => {
+      let hat = dot(wWf, featFn(p, i, wfTest));
+      if (useCat) {
+        const cat = p.category || 'Other';
+        let sum = 0, cnt = 0;
+        for (let j = 0; j < wfTrain.length; j++) {
+          if ((wfTrain[j]!.category || 'Other') === cat) {
+            sum += wfTrY[j]! - dot(wWf, wfTrX[j]!);
+            cnt++;
+          }
+        }
+        hat += sum / (cnt + catLam);
+      }
+      return hat;
+    });
+    const wfActual = wfTest.map((p) => Math.log(p.mcap_usd! / p.tvl_usd));
+    return {
+      loo: multMiss(looPreds, yAll),
+      wf: multMiss(wfPreds, wfActual),
+      looPreds,
+      wfPreds,
+      wfActual,
+    };
+  };
+
+  const base = evalVariant(() => [1], false, 0);
+  const size = evalVariant((p) => [1, Math.log(p.tvl_usd / TVL_REF)], false, 0);
+  const sizeCat = evalVariant((p) => [1, Math.log(p.tvl_usd / TVL_REF)], true, CAT_VAL_LAMBDA);
+  const plusG7 = evalVariant((p) => [1, Math.log(p.tvl_usd / TVL_REF), growth7d(p)], true, CAT_VAL_LAMBDA);
+  const plusAge = evalVariant((p) => [1, Math.log(p.tvl_usd / TVL_REF), Math.log(ageYears(asOf, p.listed_at))], true, CAT_VAL_LAMBDA);
+  const plusChains = evalVariant((p) => [1, Math.log(p.tvl_usd / TVL_REF), Math.log(Math.max(1, p.chains.length))], true, CAT_VAL_LAMBDA);
+  const ctrl = evalVariant((p, idx, pool) => [1, Math.log(p.tvl_usd / TVL_REF), growth7d(pool[(idx + 7) % pool.length]!)], true, CAT_VAL_LAMBDA);
+
+  const keepCat = sizeCat.wf <= size.wf + 0.03;
+  const active = keepCat ? sizeCat : size;
+
+  // Calibrate empirical quantiles on LOO residuals of the active model
+  const looRes = active.looPreds.map((pr, i) => yAll[i]! - pr);
+  const q25 = quantile(looRes, 0.25);
+  const q75 = quantile(looRes, 0.75);
+  const q10 = quantile(looRes, 0.10);
+  const q90 = quantile(looRes, 0.90);
+
+  const wfRes = active.wfPreds.map((pr, i) => active.wfActual[i]! - pr);
+  const shareIn = (arr: number[], lo: number, hi: number) =>
+    round3(arr.filter((v) => v >= lo && v <= hi).length / Math.max(1, arr.length));
+
+  const rangeAudit: RangeAudit = {
+    within_3x_loo: round3(looRes.filter((v) => Math.exp(Math.abs(v)) <= 3).length / Math.max(1, looRes.length)),
+    within_3x_wf: round3(wfRes.filter((v) => Math.exp(Math.abs(v)) <= 3).length / Math.max(1, wfRes.length)),
+    in_p25_p75_loo: shareIn(looRes, q25, q75),
+    in_p25_p75_wf: shareIn(wfRes, q25, q75),
+    in_p10_p90_loo: shareIn(looRes, q10, q90),
+    in_p10_p90_wf: shareIn(wfRes, q10, q90),
+    n_loo: looRes.length,
+    n_wf: wfRes.length,
+  };
+
+  // Fit full value model on all clean comps
+  const fullX = comps.map((p) => [1, Math.log(p.tvl_usd / TVL_REF)]);
+  const wFull = solveLinearRidge(fullX, yAll, 1.0);
+  const catBuckets = new Map<string, number[]>();
+  for (let i = 0; i < comps.length; i++) {
+    const cat = comps[i]!.category || 'Other';
+    const res = yAll[i]! - dot(wFull, fullX[i]!);
+    let arr = catBuckets.get(cat);
+    if (!arr) { arr = []; catBuckets.set(cat, arr); }
     arr.push(res);
   }
-  const catResidualLog = new Map<string, number>();
-  for (const [cat, arr] of catResList) {
-    const sum = arr.reduce((a, b) => a + b, 0);
-    catResidualLog.set(cat, clamp(sum / (arr.length + CAT_SHRINK), -0.9, 0.9));
+  const catEffect = new Map<string, number>();
+  let catMin = 1, catMax = 1;
+  for (const [cat, arr] of catBuckets) {
+    const adj = keepCat ? clamp(arr.reduce((a, b) => a + b, 0) / (arr.length + CAT_VAL_LAMBDA), -0.65, 0.65) : 0;
+    catEffect.set(cat, adj);
+    const m = Math.exp(adj);
+    catMin = Math.min(catMin, m);
+    catMax = Math.max(catMax, m);
   }
 
-  // Deterministic 5-fold cross-validation
-  const folds = 5;
-  const predMcap = new Array<number>(fitted.length).fill(0);
-  const baseMcap = new Array<number>(fitted.length).fill(0);
-  for (let fold = 0; fold < folds; fold++) {
-    const trX: number[][] = [];
-    const trY: number[] = [];
-    const trIdx: number[] = [];
-    const teIdx: number[] = [];
-    for (let i = 0; i < fitted.length; i++) {
-      if (i % folds === fold) teIdx.push(i);
-      else {
-        trIdx.push(i);
-        trX.push(X[i]!);
-        trY.push(yRatio[i]!);
-      }
-    }
-    const wf = solveRidge(trX, trY, LAMBDA);
-    const medLogRatio = median(trY);
-    const foldCat = new Map<string, number[]>();
-    for (const idx of trIdx) {
-      const cat = fitted[idx]!.category || 'Other';
-      const r = yRatio[idx]! - dot(wf, X[idx]!);
-      let arr = foldCat.get(cat);
-      if (!arr) {
-        arr = [];
-        foldCat.set(cat, arr);
-      }
-      arr.push(r);
-    }
-    for (const idx of teIdx) {
-      const cat = fitted[idx]!.category || 'Other';
-      const arr = foldCat.get(cat);
-      const cAdj = arr ? clamp(arr.reduce((a, b) => a + b, 0) / (arr.length + CAT_SHRINK), -0.9, 0.9) : 0;
-      const logTvl = Math.log(fitted[idx]!.tvl_usd);
-      predMcap[idx] = logTvl + dot(wf, X[idx]!) + cAdj;
-      baseMcap[idx] = logTvl + medLogRatio;
-    }
-  }
+  const valueAblation: ValueAblationRow[] = [
+    { term: 'flat median multiple', loo_miss: round3(base.loo), wf_miss: round3(base.wf), status: 'baseline' },
+    { term: '+ size curve, ln TVL', loo_miss: round3(size.loo), wf_miss: round3(size.wf), status: 'kept' },
+    { term: `+ category ridge (λ=${CAT_VAL_LAMBDA})`, loo_miss: round3(sizeCat.loo), wf_miss: round3(sizeCat.wf), status: keepCat ? 'kept' : 'tested, not kept' },
+    { term: '+ 7-day TVL growth', loo_miss: round3(plusG7.loo), wf_miss: round3(plusG7.wf), status: 'tested, not kept' },
+    { term: '+ age, ln years listed', loo_miss: round3(plusAge.loo), wf_miss: round3(plusAge.wf), status: 'tested, not kept' },
+    { term: '+ chain count, ln', loo_miss: round3(plusChains.loo), wf_miss: round3(plusChains.wf), status: 'tested, not kept' },
+    { term: '+ control: shuffled growth', loo_miss: round3(ctrl.loo), wf_miss: round3(ctrl.wf), status: 'control' },
+  ];
 
-  const meanY = yMcap.reduce((a, b) => a + b, 0) / Math.max(1, yMcap.length);
-  const ssTot = yMcap.reduce((a, y) => a + (y - meanY) ** 2, 0) || 1;
-  const ssRes = yMcap.reduce((a, y, i) => a + (y - predMcap[i]!) ** 2, 0);
-  const ssBase = yMcap.reduce((a, y, i) => a + (y - baseMcap[i]!) ** 2, 0);
-  const apeMod = median(yMcap.map((y, i) => Math.abs(Math.exp(predMcap[i]!) - Math.exp(y)) / Math.exp(y))) * 100;
-  const apeBase = median(yMcap.map((y, i) => Math.abs(Math.exp(baseMcap[i]!) - Math.exp(y)) / Math.exp(y))) * 100;
-  const cvRmse = Math.sqrt(ssRes / Math.max(1, yMcap.length));
-  const globalMedMult = Math.exp(median(yRatio));
+  return { wFull, catEffect, catMin, catMax, q25, q75, q10, q90, valueAblation, rangeAudit };
+}
 
-  // Category tokenization & comp statistics across entire 758-protocol snapshot
-  const catBuckets = new Map<string, { total: number; live: number; pre: number; ratios: number[]; tvls: number[] }>();
-  for (const p of snapshot.protocols) {
-    const cat = p.category || 'Other';
-    let b = catBuckets.get(cat);
-    if (!b) {
-      b = { total: 0, live: 0, pre: 0, ratios: [], tvls: [] };
-      catBuckets.set(cat, b);
-    }
-    b.total += 1;
-    if (isPreToken(p)) b.pre += 1;
-    else b.live += 1;
-    if (p.mcap_usd && p.mcap_usd > 0 && p.tvl_usd > 0 && p.category !== 'CEX') {
-      const r = p.mcap_usd / p.tvl_usd;
-      if (r >= 0.02 && r <= 15.0) {
-        b.ratios.push(r);
-        b.tvls.push(p.tvl_usd);
-      }
-    }
-  }
+function fitTokenOddsAndAblate(peers: SnapshotProtocol[], asOf: string) {
+  const yAll = peers.map((p) => (isNoTokenRecorded(p) ? 0 : 1));
+  const dated = peers
+    .filter((p) => p.listed_at !== null)
+    .sort((a, b) => a.listed_at!.localeCompare(b.listed_at!) || a.slug.localeCompare(b.slug));
+  const wfCut = Math.floor(dated.length * 0.6);
+  const wfTrain = dated.slice(0, wfCut);
+  const wfTest = dated.slice(wfCut);
 
-  const categoryStats: CategoryStat[] = [];
-  const catTokenRate = new Map<string, number>();
-  for (const [category, b] of catBuckets) {
-    // Bayesian-smoothed tokenization rate (prior 35% with weight 4)
-    const rate = round4((b.live + 4 * 0.35) / (b.total + 4));
-    catTokenRate.set(category, rate);
-    if (b.ratios.length > 0 || b.pre >= 3) {
-      categoryStats.push({
-        category,
-        total_protocols: b.total,
-        live_count: b.live,
-        pre_token_count: b.pre,
-        tokenization_rate: rate,
-        median_multiple: round4(b.ratios.length > 0 ? median(b.ratios) : globalMedMult),
-        cat_residual_log: round4(catResidualLog.get(category) ?? 0),
-        median_tvl_usd: Math.round(b.tvls.length > 0 ? median(b.tvls) : 0),
-      });
+  const brierAndAcc = (probs: number[], actual: number[]) => {
+    let b = 0, ok = 0;
+    for (let i = 0; i < probs.length; i++) {
+      b += (probs[i]! - actual[i]!) ** 2;
+      if ((probs[i]! >= 0.5 ? 1 : 0) === actual[i]!) ok++;
     }
-  }
-  categoryStats.sort((a, b) => b.live_count - a.live_count || b.total_protocols - a.total_protocols);
-
-  return {
-    weights: {
-      intercept: round4(wFull[0]!),
-      log_tvl_slope: round4(wFull[1]!),
-      log_age_slope: round4(wFull[2]!),
-      growth_7d_slope: round4(wFull[3]!),
-      log_chains_slope: round4(wFull[4]!),
-      lambda: LAMBDA,
-    },
-    catResidualLog,
-    validation: {
-      folds,
-      live_comps_total: rawLive.length,
-      live_comps_fitted: fitted.length,
-      cv_r2_log: round4(1 - ssRes / ssTot),
-      baseline_r2_log: round4(1 - ssBase / ssTot),
-      cv_rmse_log: round4(cvRmse),
-      cv_median_ape_pct: round4(apeMod),
-      baseline_median_ape_pct: round4(apeBase),
-      global_median_multiple: round4(globalMedMult),
-    },
-    categoryStats,
-    catTokenRate,
+    return { brier: round3(b / Math.max(1, probs.length)), acc: round3(ok / Math.max(1, probs.length)) };
   };
+
+  const evalOdds = (
+    featFn: (p: SnapshotProtocol, idx: number, pool: SnapshotProtocol[]) => number[],
+    useCat: boolean,
+  ) => {
+    // 10-fold CV
+    const cvProbs = new Array<number>(peers.length).fill(0.5);
+    for (let fold = 0; fold < 10; fold++) {
+      const tr: SnapshotProtocol[] = [];
+      const trX: number[][] = [];
+      const trY: number[] = [];
+      const teIdx: number[] = [];
+      for (let i = 0; i < peers.length; i++) {
+        if (i % 10 === fold) teIdx.push(i);
+        else {
+          tr.push(peers[i]!);
+          trX.push(featFn(peers[i]!, i, peers));
+          trY.push(yAll[i]!);
+        }
+      }
+      const w = fitLogisticRidge(trX, trY, 2.0);
+      const catSums = new Map<string, { res: number; n: number }>();
+      if (useCat) {
+        for (let i = 0; i < tr.length; i++) {
+          const cat = tr[i]!.category || 'Other';
+          const pHat = sigmoid(dot(w, trX[i]!));
+          const cur = catSums.get(cat) ?? { res: 0, n: 0 };
+          cur.res += trY[i]! - pHat;
+          cur.n += 1;
+          catSums.set(cat, cur);
+        }
+      }
+      for (const idx of teIdx) {
+        let z = dot(w, featFn(peers[idx]!, idx, peers));
+        if (useCat) {
+          const cur = catSums.get(peers[idx]!.category || 'Other');
+          if (cur) z += clamp((cur.res * 4) / (cur.n + CAT_ODDS_LAMBDA), -1.1, 1.1);
+        }
+        cvProbs[idx] = sigmoid(z);
+      }
+    }
+    const wfTrX = wfTrain.map((p, i) => featFn(p, i, wfTrain));
+    const wfTrY = wfTrain.map((p) => (isNoTokenRecorded(p) ? 0 : 1));
+    const wWf = fitLogisticRidge(wfTrX, wfTrY, 2.0);
+    const catWf = new Map<string, { res: number; n: number }>();
+    if (useCat) {
+      for (let i = 0; i < wfTrain.length; i++) {
+        const cat = wfTrain[i]!.category || 'Other';
+        const cur = catWf.get(cat) ?? { res: 0, n: 0 };
+        cur.res += wfTrY[i]! - sigmoid(dot(wWf, wfTrX[i]!));
+        cur.n += 1;
+        catWf.set(cat, cur);
+      }
+    }
+    const wfProbs = wfTest.map((p, i) => {
+      let z = dot(wWf, featFn(p, i, wfTest));
+      if (useCat) {
+        const cur = catWf.get(p.category || 'Other');
+        if (cur) z += clamp((cur.res * 4) / (cur.n + CAT_ODDS_LAMBDA), -1.1, 1.1);
+      }
+      return sigmoid(z);
+    });
+    const wfAct = wfTest.map((p) => (isNoTokenRecorded(p) ? 0 : 1));
+    return { cv: brierAndAcc(cvProbs, yAll), wf: brierAndAcc(wfProbs, wfAct) };
+  };
+
+  const base = evalOdds(() => [1], false);
+  const plusAge = evalOdds((p) => [1, ageYears(asOf, p.listed_at)], false);
+  const plusAgeCat = evalOdds((p) => [1, ageYears(asOf, p.listed_at)], true);
+  const plusTvl = evalOdds((p) => [1, ageYears(asOf, p.listed_at), Math.log(Math.max(1, p.tvl_usd) / TVL_REF)], true);
+  const plusG7 = evalOdds((p) => [1, ageYears(asOf, p.listed_at), Math.log(Math.max(1, p.tvl_usd) / TVL_REF), growth7d(p)], true);
+  const plusCh = evalOdds((p) => [1, ageYears(asOf, p.listed_at), Math.log(Math.max(1, p.tvl_usd) / TVL_REF), growth7d(p), Math.log(Math.max(1, p.chains.length))], true);
+  const ctrl = evalOdds((p, i, pool) => [1, ageYears(asOf, p.listed_at), Math.log(Math.max(1, p.tvl_usd) / TVL_REF), growth7d(p), growth7d(pool[(i + 11) % pool.length]!)], true);
+
+  // Fit full kept odds model: [1, ageYears, ln(TVL/100M), g7] + shrunk category effect
+  const fullX = peers.map((p) => [1, ageYears(asOf, p.listed_at), Math.log(Math.max(1, p.tvl_usd) / TVL_REF), growth7d(p)]);
+  const wOdds = fitLogisticRidge(fullX, yAll, 2.0);
+  const catSums = new Map<string, { res: number; n: number }>();
+  for (let i = 0; i < peers.length; i++) {
+    const cat = peers[i]!.category || 'Other';
+    const cur = catSums.get(cat) ?? { res: 0, n: 0 };
+    cur.res += yAll[i]! - sigmoid(dot(wOdds, fullX[i]!));
+    cur.n += 1;
+    catSums.set(cat, cur);
+  }
+  const catOddsLogit = new Map<string, number>();
+  for (const [cat, cur] of catSums) {
+    catOddsLogit.set(cat, clamp((cur.res * 4) / (cur.n + CAT_ODDS_LAMBDA), -1.1, 1.1));
+  }
+
+  const oddsAblation: OddsAblationRow[] = [
+    { term: 'base rate of peers', cv_brier: base.cv.brier, cv_acc: base.cv.acc, wf_brier: base.wf.brier, wf_acc: base.wf.acc, status: 'baseline' },
+    { term: '+ age, years listed', cv_brier: plusAge.cv.brier, cv_acc: plusAge.cv.acc, wf_brier: plusAge.wf.brier, wf_acc: plusAge.wf.acc, status: 'kept' },
+    { term: `+ category effect (λ=${CAT_ODDS_LAMBDA})`, cv_brier: plusAgeCat.cv.brier, cv_acc: plusAgeCat.cv.acc, wf_brier: plusAgeCat.wf.brier, wf_acc: plusAgeCat.wf.acc, status: 'kept' },
+    { term: '+ size curve, ln TVL', cv_brier: plusTvl.cv.brier, cv_acc: plusTvl.cv.acc, wf_brier: plusTvl.wf.brier, wf_acc: plusTvl.wf.acc, status: 'kept' },
+    { term: '+ 7-day TVL growth', cv_brier: plusG7.cv.brier, cv_acc: plusG7.cv.acc, wf_brier: plusG7.wf.brier, wf_acc: plusG7.wf.acc, status: 'kept' },
+    { term: '+ chain count, ln', cv_brier: plusCh.cv.brier, cv_acc: plusCh.cv.acc, wf_brier: plusCh.wf.brier, wf_acc: plusCh.wf.acc, status: 'tested, not kept' },
+    { term: '+ control: shuffled growth', cv_brier: ctrl.cv.brier, cv_acc: ctrl.cv.acc, wf_brier: ctrl.wf.brier, wf_acc: ctrl.wf.acc, status: 'control' },
+  ];
+
+  const baseRate = yAll.reduce((a, b) => a + b, 0) / Math.max(1, yAll.length);
+  return { wOdds, catOddsLogit, oddsAblation, baseRate, nPeers: peers.length, nTokenized: yAll.reduce((a, b) => a + b, 0) };
 }
 
 function gasProfile(chain: string): { txUsd: number; label: string } {
   const c = chain.toLowerCase();
-  if (['solana', 'sui', 'aptos', 'ton', 'sei', 'near', 'hyperliquid'].includes(c)) return { txUsd: 0.02, label: 'low-fee L1' };
-  if (['arbitrum', 'base', 'optimism', 'polygon', 'scroll', 'linea', 'zksync era', 'mantle', 'blast', 'mode', 'sonic'].includes(c)) {
-    return { txUsd: 0.15, label: 'L2 rollup' };
+  if (['solana', 'sui', 'aptos', 'ton', 'sei', 'near', 'hyperliquid', 'pharos', 'bittensor'].includes(c)) {
+    return { txUsd: 0.03, label: 'low-fee L1' };
   }
-  if (c === 'ethereum') return { txUsd: 5.5, label: 'Ethereum L1' };
+  if (['arbitrum', 'base', 'optimism', 'polygon', 'scroll', 'linea', 'zksync era', 'mantle', 'blast', 'mode', 'sonic', 'ink', 'berachain', 'unichain'].includes(c)) {
+    return { txUsd: 0.16, label: 'L2 rollup' };
+  }
+  if (c === 'ethereum') return { txUsd: 4.8, label: 'Ethereum L1' };
   return { txUsd: 0.35, label: 'network gas' };
 }
 
-function holdDaysFor(age: number | null, tvl: number): number {
-  if (age !== null && age >= 450 && tvl >= 50_000_000) return 30;
-  if (age !== null && age >= 180) return 45;
-  return 60;
-}
-
-function buildFarmPlan(p: SnapshotProtocol, age: number | null): { steps: string[]; totalGasUsd: number; holdDays: number } {
+function buildFarmPlan(p: SnapshotProtocol, age: number | null): {
+  steps: string[];
+  planDepositUsd: number;
+  totalFeeUsd: number;
+  hours: number;
+  holdDays: number;
+} {
   const primary = p.chains[0] ?? 'Mainnet';
   const secondary = p.chains[1];
   const gas = gasProfile(primary);
-  const hold = holdDaysFor(age, p.tvl_usd);
-  const weeks = Math.max(4, Math.round(hold / 7));
+  const holdDays = age !== null && age >= 420 && p.tvl_usd >= 50_000_000 ? 60 : 84;
+  const weeks = Math.round(holdDays / 7);
+  const planDepositUsd = Math.round(clamp(p.tvl_usd * 0.00025, 1000, 10000) / 100) * 100;
   const c = (p.category ?? '').toLowerCase();
-  const baseCap = p.tvl_usd >= 500_000_000 ? 1000 : p.tvl_usd >= 100_000_000 ? 500 : 250;
-  const totalGasUsd = Math.round((gas.txUsd * (4 + weeks)) * 100) / 100;
-  const gasStr = gas.txUsd < 0.1 ? '$0.02' : `$${gas.txUsd.toFixed(2)}`;
+  const txCount = 4 + Math.ceil(weeks / 2);
+  let protocolFee = 0;
+  let hours = round3(0.75 + weeks * 0.18);
+  const gasStr = gas.txUsd < 0.1 ? '$0.03' : `$${gas.txUsd.toFixed(2)}`;
 
-  let deployStep = `Deposit $${baseCap} USDC (scales linearly for $1K/$10K/$50K accounts) into ${p.name}'s primary yield vault on ${primary} to establish a non-Sybil snapshot balance. Est. gas: ${gasStr} (${gas.label}); time: 10 min.`;
-  let weeklyStep = `Run 1 organic weekly action (compound, top-up $25+, or rotate across vaults) on ${p.name} for ${weeks} consecutive weeks so multi-epoch consistency is recorded. Est. gas: ${gasStr}/wk; time: 8 min/wk.`;
+  let deployStep = `Deposit $${planDepositUsd.toLocaleString()} USDC into ${p.name}'s primary vault on ${primary} via a single non-Sybil wallet to establish baseline snapshot liquidity. Cost: ${gasStr} x 2 (${gas.label}); time: 12 min.`;
+  let activeStep = `Compound or top up >=$50 every two weeks across ${weeks} weeks (${Math.ceil(weeks / 2)} touches) so multi-epoch retention is recorded on ${p.name}. Cost: ${gasStr}/touch; time: 8 min/touch.`;
 
   if (c.includes('dex')) {
-    deployStep = `Seed $${baseCap} into a correlated or top-fee LP pool on ${p.name} (${primary}) and route 3 organic swaps >=$50 to qualify as both LP and active trader. Est. gas: ${gasStr} x 4; time: 12 min.`;
-    weeklyStep = `Execute >=$${baseCap * 2} weekly swap volume and rebalance active LP ticks on ${p.name}${secondary ? ` across ${primary} and ${secondary}` : ''}. Est. gas: ${gasStr}/wk; time: 10 min/wk.`;
+    protocolFee = round3(planDepositUsd * 0.0012);
+    deployStep = `Seed $${planDepositUsd.toLocaleString()} into ${p.name}'s highest-volume pool on ${primary} and route 4 organic swaps >=$75 to qualify for both LP and trader multipliers. Cost: ${gasStr} x 5 + ~$${protocolFee.toFixed(2)} swap fee; time: 15 min.`;
+    activeStep = `Rebalance LP ticks and route $${Math.round(planDepositUsd * 0.8).toLocaleString()} biweekly volume on ${p.name}${secondary ? ` (${primary} + ${secondary})` : ''} for ${weeks} weeks. Cost: ${gasStr}/touch; time: 12 min/touch.`;
+    hours = round3(1.0 + weeks * 0.22);
   } else if (c.includes('lend') || c.includes('cdp')) {
-    deployStep = `Supply $${baseCap} blue-chip collateral on ${p.name} (${primary}) and borrow 30-35% LTV in stablecoins to earn dual supply+borrow points while keeping health factor >2.2. Est. gas: ${gasStr} x 2; time: 10 min.`;
-    weeklyStep = `Repay or adjust 10% of the borrow balance weekly on ${p.name} and verify liquidation buffer across ${weeks} epochs. Est. gas: ${gasStr}/wk; time: 8 min/wk.`;
-  } else if (c.includes('derivative') || c.includes('perp') || c.includes('basis')) {
-    deployStep = `Fund $${baseCap} margin on ${p.name} (${primary}) and execute maker-fee delta-neutral or hedged trades to build organic open-interest and volume scores. Est. gas: ${gasStr} + ~0.04% maker fee; time: 15 min.`;
-    weeklyStep = `Generate >=$${baseCap * 5} weekly notional maker volume across 2+ distinct trading days on ${p.name} for ${weeks} weeks. Est. fee+gas: ~$${Math.max(0.5, baseCap * 0.002).toFixed(2)}/wk; time: 15 min/wk.`;
-  } else if (c.includes('risk curator') || c.includes('allocator') || c.includes('yield')) {
-    deployStep = `Allocate $${baseCap} USDC/ETH into ${p.name}'s flagship curated vault on ${primary}, targeting vaults with active partner incentives to stack base APY plus pre-token points. Est. gas: ${gasStr} x 2; time: 10 min.`;
+    deployStep = `Supply $${planDepositUsd.toLocaleString()} blue-chip collateral on ${p.name} (${primary}) and borrow 30% LTV in stablecoins to accrue dual supply+borrow points with health factor >2.3. Cost: ${gasStr} x 3; time: 12 min.`;
+    activeStep = `Adjust 10% of the borrow leg biweekly on ${p.name} and audit liquidation buffer across ${weeks} weeks. Cost: ${gasStr}/touch; time: 9 min/touch.`;
+  } else if (c.includes('derivative') || c.includes('perp') || c.includes('basis') || c.includes('prediction')) {
+    protocolFee = round3(planDepositUsd * 0.0025);
+    deployStep = `Fund $${planDepositUsd.toLocaleString()} collateral on ${p.name} (${primary}) and place maker-fee hedged orders to build organic open interest without directional liquidation risk. Cost: ${gasStr} + ~$${protocolFee.toFixed(2)} maker fees; time: 18 min.`;
+    activeStep = `Maintain weekly hedged maker volume (>=2x collateral) across 2+ distinct days per week on ${p.name} for ${weeks} weeks. Cost: ${gasStr}/wk; time: 14 min/wk.`;
+    hours = round3(1.2 + weeks * 0.28);
   } else if (c.includes('rwa')) {
-    deployStep = `Mint or acquire $${baseCap} of ${p.name}'s yield-bearing RWA token on ${primary} and hold continuously in a single self-custody wallet to earn native T-bill/credit yield while farming. Est. gas: ${gasStr}; time: 12 min.`;
-  } else if (c.includes('restak') || c.includes('stak')) {
-    deployStep = `Stake $${baseCap} of native/LST collateral via ${p.name} on ${primary} and hold the liquid receipt token without looping past 2x leverage. Est. gas: ${gasStr} x 2; time: 10 min.`;
+    deployStep = `Mint or acquire $${planDepositUsd.toLocaleString()} of ${p.name}'s yield-bearing RWA instrument on ${primary} and hold continuously in self-custody to earn native base yield while farming. Cost: ${gasStr} x 2; time: 15 min.`;
+  } else if (c.includes('risk curator') || c.includes('allocator') || c.includes('yield')) {
+    deployStep = `Allocate $${planDepositUsd.toLocaleString()} USDC/WETH into ${p.name}'s flagship curated vault on ${primary}, prioritizing vaults with active partner point boosts. Cost: ${gasStr} x 2; time: 12 min.`;
   }
 
+  const totalFeeUsd = round3(gas.txUsd * txCount + protocolFee);
   const steps = [
-    `Prepare an isolated farming wallet on ${primary} with $${baseCap}+ principal and a $${Math.max(5, Math.ceil(totalGasUsd * 3))} native gas reserve (no cross-wallet dust transfers). Cost: ${gasStr} funding; time: 5 min.`,
+    `Isolate a dedicated farming wallet on ${primary} funded directly from an exchange with $${planDepositUsd.toLocaleString()} principal plus $${Math.max(6, Math.ceil(totalFeeUsd * 2.5))} native gas (no cross-wallet links). Cost: ${gasStr}; time: 8 min.`,
     deployStep,
-    weeklyStep,
-    `Maintain continuous TVL exposure on ${p.name} for ${hold} days (${weeks} epochs) without withdrawing to zero between snapshots; estimated cumulative gas over window: ~$${totalGasUsd.toFixed(2)}. Time: ${hold} days hold.`,
-    `Track accrual via official protocol docs/analytics only, export all tx hashes for claim verification, and unwind gradually after TGE rather than panic-exiting pre-snapshot. Cost: ${gasStr} exit/claim; time: 10 min.`,
+    activeStep,
+    `Hold continuous TVL in ${p.name} for ${holdDays} days (${weeks} weeks) without zeroing balances between snapshots; cumulative gas + protocol fees ~ $${totalFeeUsd.toFixed(2)} over ${hours.toFixed(1)}h total work.`,
+    `Log every deposit, rebalance, and epoch balance from official ${p.name} docs only, and unwind gradually post-TGE after verifying claim eligibility. Cost: ${gasStr} claim/exit; time: 10 min.`,
   ];
-  return { steps: steps.map((s) => (s.length > 596 ? `${s.slice(0, 593)}...` : s)), totalGasUsd, holdDays: hold };
+
+  return {
+    steps: steps.map((s) => (s.length > 596 ? `${s.slice(0, 593)}...` : s)),
+    planDepositUsd,
+    totalFeeUsd,
+    hours,
+    holdDays,
+  };
 }
 
 export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: RadarData } {
-  const fit = fitRidgeAndCrossValidate(snapshot);
-  const wVec = [
-    fit.weights.intercept,
-    fit.weights.log_tvl_slope,
-    fit.weights.log_age_slope,
-    fit.weights.growth_7d_slope,
-    fit.weights.log_chains_slope,
-  ];
-  const index = new Map(snapshot.protocols.map((p) => [p.slug, p]));
   const wlSet = new Set(snapshot.watchlist);
-  const chosen = new Map<string, SnapshotProtocol>();
+  const ledger: LedgerBreakdown = {
+    total: snapshot.protocols.length,
+    ranked_watchlist: 0,
+    ranked_early: 0,
+    ranked_offlist: 0,
+    token_priced: 0,
+    token_nocap: 0,
+    out_bridge: 0,
+    out_lst: 0,
+    out_exchange: 0,
+    out_versioned: 0,
+    out_wrapped: 0,
+  };
 
-  for (const slug of snapshot.watchlist) {
-    const p = index.get(slug);
-    if (p) chosen.set(slug, p);
-  }
+  const rankedCandidates: Array<{ p: SnapshotProtocol; tier: 'watchlist' | 'early' | 'offlist' }> = [];
+  const eligiblePeers: SnapshotProtocol[] = [];
+  const cleanComps: SnapshotProtocol[] = [];
+  const allPricedLive: SnapshotProtocol[] = [];
+
   for (const p of snapshot.protocols) {
-    if (!chosen.has(p.slug) && isRankable(p)) chosen.set(p.slug, p);
+    const noTok = isNoTokenRecorded(p);
+    const excl = exclusionReason(p);
+    if (!noTok) {
+      if (p.mcap_usd !== null && p.mcap_usd > 0) {
+        ledger.token_priced++;
+        allPricedLive.push(p);
+        if (excl === null && p.tvl_usd > 0) cleanComps.push(p);
+      } else {
+        ledger.token_nocap++;
+      }
+      if (excl === null) eligiblePeers.push(p);
+      continue;
+    }
+    if (wlSet.has(p.slug)) {
+      ledger.ranked_watchlist++;
+      rankedCandidates.push({ p, tier: 'watchlist' });
+      eligiblePeers.push(p);
+      continue;
+    }
+    if (excl === 'bridge') { ledger.out_bridge++; continue; }
+    if (excl === 'lst') { ledger.out_lst++; continue; }
+    if (excl === 'exchange') { ledger.out_exchange++; continue; }
+    if (excl === 'versioned') { ledger.out_versioned++; continue; }
+    if (excl === 'wrapped') { ledger.out_wrapped++; continue; }
+
+    eligiblePeers.push(p);
+    if (p.tvl_usd >= snapshot.floor_usd) {
+      ledger.ranked_offlist++;
+      rankedCandidates.push({ p, tier: 'offlist' });
+    } else {
+      ledger.ranked_early++;
+      rankedCandidates.push({ p, tier: 'early' });
+    }
   }
 
-  const z80 = 1.2816; // 80% interval (p10..p90) from held-out CV RMSE
-  const scored = [...chosen.values()].map((p) => {
+  const valFit = fitValueModelAndAblate(cleanComps, snapshot.as_of);
+  const oddsFit = fitTokenOddsAndAblate(eligiblePeers, snapshot.as_of);
+
+  const scored = rankedCandidates.map(({ p, tier }) => {
     const cat = p.category || 'Other';
-    const x = featureVec(p, snapshot.as_of);
-    const catRes = fit.catResidualLog.get(cat) ?? 0;
-    const logRatioPred = clamp(dot(wVec, x) + catRes, Math.log(0.03), Math.log(8.0));
-    const impliedMult = Math.exp(logRatioPred);
-    const implied = Math.max(1, Math.round(p.tvl_usd * impliedMult));
-    const band = clamp(fit.validation.cv_rmse_log * z80, 0.35, 2.2);
-    const p10 = Math.max(1, Math.round(implied * Math.exp(-band)));
-    const p90 = Math.max(implied + 1, Math.round(implied * Math.exp(band)));
+    const lnTvlRel = Math.log(Math.max(1, p.tvl_usd) / TVL_REF);
+    const catValAdj = valFit.catEffect.get(cat) ?? 0;
+    const logMult = clamp(valFit.wFull[0]! + valFit.wFull[1]! * lnTvlRel + catValAdj, Math.log(0.02), Math.log(12));
+    const launchVal = Math.max(1, Math.round(p.tvl_usd * Math.exp(logMult)));
+
+    const ageY = ageYears(snapshot.as_of, p.listed_at);
+    const g7 = growth7d(p);
+    const catOdds = oddsFit.catOddsLogit.get(cat) ?? 0;
+    const zOdds =
+      oddsFit.wOdds[0]! +
+      oddsFit.wOdds[1]! * ageY +
+      oddsFit.wOdds[2]! * lnTvlRel +
+      oddsFit.wOdds[3]! * g7 +
+      catOdds;
+    const tokenOdds = clamp(sigmoid(zOdds), 0.08, 0.96);
+
+    const implied = Math.max(1, Math.round(launchVal * tokenOdds));
+    const p25 = Math.max(1, Math.round(implied * Math.exp(valFit.q25)));
+    const p75 = Math.max(implied + 1, Math.round(implied * Math.exp(valFit.q75)));
+    const p10 = Math.max(1, Math.round(implied * Math.exp(valFit.q10)));
+    const p90 = Math.max(p75 + 1, Math.round(implied * Math.exp(valFit.q90)));
     const age = ageDays(snapshot.as_of, p.listed_at);
     const plan = buildFarmPlan(p, age);
+
     return {
       p,
-      isWatchlist: wlSet.has(p.slug),
+      tier,
       age,
+      tokenOdds,
+      launchVal,
       implied,
+      p25,
+      p75,
       p10,
       p90,
-      impliedMult,
-      peerTokenRate: fit.catTokenRate.get(cat) ?? 0.35,
+      impliedMult: implied / Math.max(1, p.tvl_usd),
       plan,
       model: {
-        base_multiple: round4(Math.exp(wVec[0]!)),
-        tvl_scale_mult: round4(Math.exp(wVec[1]! * x[1]!)),
-        age_mult: round4(Math.exp(wVec[2]! * x[2]!)),
-        growth_mult: round4(Math.exp(wVec[3]! * x[3]!)),
-        chain_mult: round4(Math.exp(wVec[4]! * x[4]!)),
-        category_mult: round4(Math.exp(catRes)),
+        base_multiple: round4(Math.exp(valFit.wFull[0]!)),
+        size_mult: round4(Math.exp(valFit.wFull[1]! * lnTvlRel)),
+        category_mult: round4(Math.exp(catValAdj)),
+        token_odds: round4(tokenOdds),
+        odds_age_logit: round3(oddsFit.wOdds[1]! * ageY),
+        odds_tvl_logit: round3(oddsFit.wOdds[2]! * lnTvlRel),
+        odds_g7_logit: round3(oddsFit.wOdds[3]! * g7),
+        odds_cat_logit: round3(catOdds),
       },
     };
   });
@@ -512,29 +768,33 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     listed_at: s.p.listed_at,
     gecko_id: s.p.gecko_id,
     symbol: s.p.symbol,
-    token_status: 'pre-token',
-    is_watchlist: s.isWatchlist,
+    tier: s.tier,
+    is_watchlist: s.tier === 'watchlist',
     age_days: s.age,
+    token_odds: round4(s.tokenOdds),
+    launch_value_usd: s.launchVal,
     implied_value_usd: s.implied,
+    p25_value_usd: s.p25,
+    p75_value_usd: s.p75,
     p10_value_usd: s.p10,
     p90_value_usd: s.p90,
     implied_multiple: round4(s.impliedMult),
-    peer_token_rate: s.peerTokenRate,
-    farm_cost_usd: s.plan.totalGasUsd,
+    plan_deposit_usd: s.plan.planDepositUsd,
+    farm_cost_usd: s.plan.totalFeeUsd,
+    farm_hours: s.plan.hours,
     hold_days: s.plan.holdDays,
     model: s.model,
     farm_steps: s.plan.steps,
   }));
 
-  const liveAll = snapshot.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0 && p.category !== 'CEX');
-  const live: LiveRow[] = liveAll
+  const live: LiveRow[] = cleanComps
+    .filter((p) => p.tvl_usd > 0)
     .sort((a, b) => (b.mcap_usd ?? 0) - (a.mcap_usd ?? 0))
-    .slice(0, 50)
     .map((p) => {
       const cat = p.category || 'Other';
-      const x = featureVec(p, snapshot.as_of);
-      const catRes = fit.catResidualLog.get(cat) ?? 0;
-      const pred = Math.round(p.tvl_usd * Math.exp(clamp(dot(wVec, x) + catRes, Math.log(0.03), Math.log(8.0))));
+      const lnTvlRel = Math.log(Math.max(1, p.tvl_usd) / TVL_REF);
+      const catValAdj = valFit.catEffect.get(cat) ?? 0;
+      const pred = Math.max(1, Math.round(p.tvl_usd * Math.exp(clamp(valFit.wFull[0]! + valFit.wFull[1]! * lnTvlRel + catValAdj, Math.log(0.02), Math.log(12)))));
       return {
         slug: p.slug,
         name: p.name,
@@ -546,54 +806,50 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
         pred_mcap_usd: pred,
         change_7d: p.change_7d,
         symbol: p.symbol,
+        listed_at: p.listed_at,
       };
     });
 
-  const wlCount = board.filter((r) => r.is_watchlist).length;
-  const earlyCount = board.length - wlCount;
-  const totalLive = snapshot.protocols.filter((p) => !isPreToken(p)).length;
-  const excludedCount = snapshot.protocols.length - board.length - totalLive;
+  const seal = computeSeal(board);
+  const totalImplied = board.reduce((s, r) => s + r.implied_value_usd, 0);
 
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
     floor_usd: snapshot.floor_usd,
     model_version: MODEL_VERSION,
-    weights: fit.weights,
-    validation: fit.validation,
-    universe: {
-      total: snapshot.protocols.length,
-      watchlist: wlCount,
-      early_pre_token: earlyCount,
-      live_token: totalLive,
-      excluded_wrapped_cex: Math.max(0, excludedCount),
+    seal,
+    total_implied_usd: totalImplied,
+    ledger,
+    value_params: {
+      base_mult_100m: round3(Math.exp(valFit.wFull[0]!)),
+      size_slope: round3(valFit.wFull[1]!),
+      cat_lambda: CAT_VAL_LAMBDA,
+      cat_min: round3(valFit.catMin),
+      cat_max: round3(valFit.catMax),
+      q25_log: round3(valFit.q25),
+      q75_log: round3(valFit.q75),
+      q10_log: round3(valFit.q10),
+      q90_log: round3(valFit.q90),
     },
-    watchlist_size: wlCount,
+    odds_params: {
+      intercept: round3(oddsFit.wOdds[0]!),
+      age_coef: round3(oddsFit.wOdds[1]!),
+      tvl_coef: round3(oddsFit.wOdds[2]!),
+      g7_coef: round3(oddsFit.wOdds[3]!),
+      base_rate: round3(oddsFit.baseRate),
+      n_peers: oddsFit.nPeers,
+      n_tokenized: oddsFit.nTokenized,
+    },
+    value_ablation: valFit.valueAblation,
+    odds_ablation: oddsFit.oddsAblation,
+    range_audit: valFit.rangeAudit,
+    watchlist_size: ledger.ranked_watchlist,
     board_size: board.length,
-    early_size: earlyCount,
+    early_size: ledger.ranked_early,
+    offlist_size: ledger.ranked_offlist,
     live_size: live.length,
-    category_stats: fit.categoryStats.slice(0, 18),
-    rows: board.map((r) => ({
-      rank: r.rank,
-      slug: r.slug,
-      name: r.name,
-      category: r.category,
-      chains: r.chains,
-      tvl_usd: r.tvl_usd,
-      change_7d: r.change_7d,
-      listed_at: r.listed_at,
-      age_days: r.age_days,
-      is_watchlist: r.is_watchlist,
-      implied_value_usd: r.implied_value_usd,
-      p10_value_usd: r.p10_value_usd,
-      p90_value_usd: r.p90_value_usd,
-      implied_multiple: r.implied_multiple,
-      peer_token_rate: r.peer_token_rate,
-      farm_cost_usd: r.farm_cost_usd,
-      hold_days: r.hold_days,
-      model: r.model,
-      farm_steps: r.farm_steps,
-    })),
+    rows: board.map(({ mcap_usd: _m, gecko_id: _g, symbol: _s, ...rest }) => rest),
     live,
   };
 
